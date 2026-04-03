@@ -28,8 +28,13 @@ def get_client(
     return auth.login()
 
 
-def upload_fit(client: Garmin, fit_path: str | Path) -> dict:
+def upload_fit(client: Garmin, fit_path: str | Path, workout_start: str | None = None) -> dict:
     """Upload a FIT file to Garmin Connect.
+
+    Args:
+        client: Authenticated Garmin client.
+        fit_path: Path to the .fit file.
+        workout_start: ISO-8601 start time for matching the uploaded activity.
 
     Returns dict with upload_id and activity_id (if found).
     """
@@ -44,19 +49,59 @@ def upload_fit(client: Garmin, fit_path: str | Path) -> dict:
     if isinstance(resp, dict):
         upload_id = resp.get("detailedImportResult", {}).get("uploadId")
 
-    # Wait for Garmin to process, then find the activity
+    # Wait for Garmin to process, then find the activity by start time
     if upload_id:
         logger.info("  Upload accepted (uploadId=%s), waiting for processing...", upload_id)
         time.sleep(8)
-        try:
-            activities = _limiter.call(client.get_activities, 0, 5)
-            if activities:
-                activity_id = activities[0].get("activityId")
-                logger.info("  Found activity %s", activity_id)
-        except Exception as e:
-            logger.warning("  Could not find uploaded activity: %s", e)
+        if workout_start:
+            activity_id = find_activity_by_start_time(client, workout_start)
+        if not activity_id:
+            # Fallback: grab most recent
+            try:
+                activities = _limiter.call(client.get_activities, 0, 5)
+                if activities:
+                    activity_id = activities[0].get("activityId")
+            except Exception as e:
+                logger.warning("  Could not find uploaded activity: %s", e)
+        if activity_id:
+            logger.info("  Found activity %s", activity_id)
 
     return {"upload_id": upload_id, "activity_id": activity_id}
+
+
+def find_activity_by_start_time(
+    client: Garmin,
+    target_start: str,
+    window_minutes: int = 10,
+) -> int | None:
+    """Find a Garmin activity matching a start time within a window."""
+    from datetime import datetime, timedelta
+
+    try:
+        target = datetime.fromisoformat(target_start.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+
+    try:
+        activities = _limiter.call(client.get_activities, 0, 10)
+    except Exception:
+        return None
+
+    for act in activities:
+        act_start_str = act.get("startTimeLocal") or act.get("startTimeGMT", "")
+        try:
+            # Garmin returns "YYYY-MM-DD HH:MM:SS" without timezone
+            if "T" not in act_start_str:
+                act_start_str = act_start_str.replace(" ", "T")
+            act_start = datetime.fromisoformat(act_start_str)
+            # Compare naive (drop timezone for comparison since Garmin returns local)
+            target_naive = target.replace(tzinfo=None) if target.tzinfo else target
+            act_naive = act_start.replace(tzinfo=None) if act_start.tzinfo else act_start
+            if abs((act_naive - target_naive).total_seconds()) < window_minutes * 60:
+                return act.get("activityId")
+        except (ValueError, TypeError):
+            continue
+    return None
 
 
 def rename_activity(client: Garmin, activity_id: int, name: str) -> None:

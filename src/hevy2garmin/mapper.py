@@ -628,14 +628,58 @@ HEVY_TO_GARMIN: dict[str, tuple[int, int]] = {
 _UNKNOWN_CATEGORY = 65534
 _UNKNOWN_SUBCATEGORY = 0
 
+# Custom user-defined mappings (loaded from ~/.hevy2garmin/custom_mappings.json)
+_custom_mappings: dict[str, tuple[int, int]] = {}
+_custom_loaded = False
+
+
+def _ensure_custom_loaded() -> None:
+    """Load custom mappings from disk on first use."""
+    global _custom_loaded
+    if _custom_loaded:
+        return
+    _custom_loaded = True
+    import json
+    from pathlib import Path
+    path = Path("~/.hevy2garmin/custom_mappings.json").expanduser()
+    if path.exists():
+        try:
+            data = json.loads(path.read_text())
+            for name, pair in data.items():
+                _custom_mappings[name] = (pair[0], pair[1])
+        except (json.JSONDecodeError, OSError, IndexError):
+            pass
+
+
+def save_custom_mapping(hevy_name: str, category: int, subcategory: int) -> None:
+    """Save a custom exercise mapping to disk."""
+    import json
+    from pathlib import Path
+    path = Path("~/.hevy2garmin/custom_mappings.json").expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing: dict = {}
+    if path.exists():
+        try:
+            existing = json.loads(path.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    existing[hevy_name] = [category, subcategory]
+    path.write_text(json.dumps(existing, indent=2))
+    _custom_mappings[hevy_name] = (category, subcategory)
+
 
 def lookup_exercise(hevy_name: str) -> tuple[int, int, str]:
     """Return ``(category, subcategory, display_name)`` for a Hevy exercise.
 
-    If *hevy_name* is not found in :data:`HEVY_TO_GARMIN`, the sentinel
-    category ``65534`` is returned with subcategory ``0`` and the original
-    name is passed through unchanged.
+    Checks custom user mappings first, then the built-in 438-entry table.
+    If not found anywhere, returns sentinel category ``65534``.
     """
+    _ensure_custom_loaded()
+    # Custom mappings take priority
+    if hevy_name in _custom_mappings:
+        cat, subcat = _custom_mappings[hevy_name]
+        return (cat, subcat, hevy_name)
+    # Built-in mappings
     pair = HEVY_TO_GARMIN.get(hevy_name)
     if pair is not None:
         return (pair[0], pair[1], hevy_name)

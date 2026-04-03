@@ -34,24 +34,29 @@ from fit_tool.profile.profile_type import (
 from hevy2garmin.mapper import lookup_exercise
 
 # ---------------------------------------------------------------------------
-# Timing constants (seconds)
+# Default timing/profile — overridden by config or profile param
 # ---------------------------------------------------------------------------
-_WORKING_SET_DURATION = 40.0
-_WARMUP_SET_DURATION = 25.0
-_REST_BETWEEN_SETS = 75.0
-_REST_BETWEEN_EXERCISES = 120.0
 _MIN_SCALE = 0.3
 _MAX_SCALE = 2.0
-
-# ---------------------------------------------------------------------------
-# Calorie formula constants (Keytel et al. 2005, male, with VO2max)
-# User profile: male, 80.5 kg, born 1994-04-30, VO2max 50
-# kcal/min = (-95.7735 + 0.634*HR + 0.404*VO2max + 0.394*W + 0.271*A) / 4.184
-# ---------------------------------------------------------------------------
-_USER_WEIGHT_KG = 80.5
-_USER_BIRTH_YEAR = 1994
-_USER_VO2MAX = 50.0
 _DEFAULT_HR_BPM = 90  # fallback when no HR data at all
+
+
+def _get_profile(override: dict | None = None) -> dict:
+    """Get user profile + timing from config, with optional overrides."""
+    from hevy2garmin.config import load_config
+    cfg = load_config()
+    profile = {
+        "weight_kg": cfg.get("user_profile", {}).get("weight_kg", 80.0),
+        "birth_year": cfg.get("user_profile", {}).get("birth_year", 1990),
+        "vo2max": cfg.get("user_profile", {}).get("vo2max", 45.0),
+        "working_set_s": cfg.get("timing", {}).get("working_set_seconds", 40),
+        "warmup_set_s": cfg.get("timing", {}).get("warmup_set_seconds", 25),
+        "rest_sets_s": cfg.get("timing", {}).get("rest_between_sets_seconds", 75),
+        "rest_exercises_s": cfg.get("timing", {}).get("rest_between_exercises_seconds", 120),
+    }
+    if override:
+        profile.update(override)
+    return profile
 
 
 # ---------------------------------------------------------------------------
@@ -75,13 +80,16 @@ def _parse_timestamp(raw: str) -> datetime:
         )
 
 
-def _calc_calories(hr_samples: list[int], duration_s: float, workout_year: int) -> int:
+def _calc_calories(hr_samples: list[int], duration_s: float, workout_year: int, profile: dict | None = None) -> int:
     """Calculate total calories from HR samples using the Keytel formula.
 
     If hr_samples is empty, uses _DEFAULT_HR_BPM.
     Distributes samples evenly across duration and sums per-interval calories.
     """
-    age = workout_year - _USER_BIRTH_YEAR
+    p = profile or _get_profile()
+    age = workout_year - p["birth_year"]
+    weight = p["weight_kg"]
+    vo2max = p["vo2max"]
     if not hr_samples:
         hr_samples = [_DEFAULT_HR_BPM]
 
@@ -90,8 +98,8 @@ def _calc_calories(hr_samples: list[int], duration_s: float, workout_year: int) 
     total = 0.0
     for hr in hr_samples:
         kcal_per_min = (
-            -95.7735 + 0.634 * hr + 0.404 * _USER_VO2MAX
-            + 0.394 * _USER_WEIGHT_KG + 0.271 * age
+            -95.7735 + 0.634 * hr + 0.404 * vo2max
+            + 0.394 * weight + 0.271 * age
         ) / 4.184
         total += max(0.0, kcal_per_min) * interval_min
     return round(total)
@@ -105,6 +113,7 @@ def generate_fit(
     hevy_workout: dict,
     hr_samples: list[int] | None,
     output_path: str,
+    profile: dict | None = None,
 ) -> dict:
     """Generate a strength-training FIT file.
 
@@ -128,6 +137,8 @@ def generate_fit(
     if hr_samples is None:
         hr_samples = []
 
+    p = _get_profile(profile)
+
     # -- Resolve timing --
     start_dt = _parse_timestamp(hevy_workout["start_time"])
     end_dt = _parse_timestamp(hevy_workout["end_time"])
@@ -138,7 +149,7 @@ def generate_fit(
 
     # -- Calculate calories from HR using Keytel formula --
     workout_year = start_dt.year
-    calories = _calc_calories(hr_samples, duration_s, workout_year)
+    calories = _calc_calories(hr_samples, duration_s, workout_year, p)
 
     # -- Gather exercises and compute timing --
     exercises = hevy_workout.get("exercises", [])
@@ -150,7 +161,7 @@ def generate_fit(
         sets = ex.get("sets", [])
         for s_idx, s in enumerate(sets):
             is_warmup = s.get("type", "normal") == "warmup"
-            set_dur = _WARMUP_SET_DURATION if is_warmup else _WORKING_SET_DURATION
+            set_dur = p["warmup_set_s"] if is_warmup else p["working_set_s"]
 
             # Rest after this set (none after the very last set of the workout)
             is_last_set_of_exercise = s_idx == len(sets) - 1
@@ -160,9 +171,9 @@ def generate_fit(
             if is_very_last:
                 rest_dur = 0.0
             elif is_last_set_of_exercise:
-                rest_dur = _REST_BETWEEN_EXERCISES
+                rest_dur = p["rest_exercises_s"]
             else:
-                rest_dur = _REST_BETWEEN_SETS
+                rest_dur = p["rest_sets_s"]
 
             all_sets_info.append(
                 {
