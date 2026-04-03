@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Exercise Mappings · hevy2garmin{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Exercise Mappings</h1>
+    <p>{{ total }} Hevy exercises mapped to Garmin FIT categories. When you upload a workout, each exercise is translated so it displays correctly in Garmin Connect.</p>
+</div>
+
+<!-- Search -->
+<div style="margin-bottom: 20px;">
+    <input
+        class="form-input"
+        type="search"
+        placeholder="Search exercises..."
+        oninput="filterMappings(this.value)"
+        aria-label="Search exercise mappings"
+    >
+</div>
+
+<div class="card" style="padding: 0; overflow: hidden;">
+    <table>
+        <thead>
+            <tr>
+                <th>Hevy Exercise Name</th>
+                <th>Garmin Category</th>
+                <th style="text-align: center;">Cat ID</th>
+                <th style="text-align: center;">Sub ID</th>
+            </tr>
+        </thead>
+        <tbody id="mappings-table">
+            {% for name, cat, subcat, cat_name in mappings %}
+            <tr>
+                <td style="font-weight: 500;">{{ name }}</td>
+                <td style="color: var(--text-secondary); font-size: 13px;">{{ cat_name }}</td>
+                <td style="text-align: center; font-variant-numeric: tabular-nums; color: var(--text-muted); font-size: 13px;">{{ cat }}</td>
+                <td style="text-align: center; font-variant-numeric: tabular-nums; color: var(--text-muted); font-size: 13px;">{{ subcat }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if custom_count > 0 %}
+<div style="margin-top: 12px; font-size: 13px; color: var(--text-muted);">
+    Includes {{ custom_count }} custom mapping{{ 's' if custom_count != 1 }}.
+</div>
+{% endif %}
+
+<script>
+function filterMappings(query) {
+    const q = query.toLowerCase();
+    const rows = document.querySelectorAll('#mappings-table tr');
+    rows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        row.style.display = text.includes(q) ? '' : 'none';
+    });
+}
+</script>
+{% endblock %}

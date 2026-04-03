@@ -99,6 +99,39 @@ async def workouts_page(request: Request):
     return _render("workouts.html", workouts=workouts)
 
 
+@app.get("/mappings", response_class=HTMLResponse)
+async def mappings_page(request: Request):
+    from hevy2garmin.mapper import HEVY_TO_GARMIN, _custom_mappings, _ensure_custom_loaded
+
+    _ensure_custom_loaded()
+
+    CAT_NAMES = {
+        0: "Bench Press", 1: "Calf Raise", 2: "Cardio", 3: "Carry", 4: "Chop",
+        5: "Core", 6: "Crunch", 7: "Curl", 8: "Deadlift", 9: "Flye",
+        10: "Hip Raise", 11: "Hip Stability", 12: "Hip Swing", 13: "Hyperextension",
+        14: "Lateral Raise", 15: "Leg Curl", 16: "Leg Raise", 17: "Lunge",
+        18: "Olympic Lift", 19: "Plank", 20: "Plyo", 21: "Pull Up", 22: "Push Up",
+        23: "Row", 24: "Shoulder Press", 25: "Shoulder Stability", 26: "Shrug",
+        27: "Sit Up", 28: "Squat", 29: "Total Body", 30: "Triceps Extension",
+        31: "Warm Up", 32: "Run", 42: "Indoor Row", 65534: "Unknown",
+    }
+
+    mappings = []
+    for name, (cat, subcat) in sorted(HEVY_TO_GARMIN.items()):
+        cat_name = CAT_NAMES.get(cat, f"Category {cat}")
+        mappings.append((name, cat, subcat, cat_name))
+    for name, (cat, subcat) in sorted(_custom_mappings.items()):
+        cat_name = CAT_NAMES.get(cat, f"Category {cat}")
+        mappings.append((name, cat, subcat, f"{cat_name} (custom)"))
+
+    return _render(
+        "mappings.html",
+        mappings=mappings,
+        total=len(mappings),
+        custom_count=len(_custom_mappings),
+    )
+
+
 @app.get("/history", response_class=HTMLResponse)
 async def history_page(request: Request):
     return _render("history.html", total=db.get_synced_count(), history=db.get_recent_synced(50))
