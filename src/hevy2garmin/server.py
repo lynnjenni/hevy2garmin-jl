@@ -269,10 +269,7 @@ async def dashboard(request: Request):
         sync_log=db.get_sync_log(10),
         mapping_count=mapping_count,
         garmin_connected=garmin_connected,
-        needs_actions_setup=bool(
-            os.environ.get("GITHUB_PAT") and os.environ.get("VERCEL")
-            and garmin_connected and synced_count == 0
-        ),
+        needs_actions_setup=False,
     )
 
 
