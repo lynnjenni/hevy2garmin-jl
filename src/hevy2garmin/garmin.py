@@ -68,7 +68,7 @@ def upload_fit(client: Garmin, fit_path: str | Path, workout_start: str | None =
         if response is None and e.__context__:
             response = getattr(e.__context__, 'response', None)
         if response is not None:
-            body = response.text[:500] if hasattr(response, 'text') else str(response)
+            body = response.text[:2000] if hasattr(response, 'text') else str(response)
             logger.error("Upload rejected — status=%s body=%s", getattr(response, 'status_code', '?'), body)
             raise RuntimeError(f"Garmin upload failed ({getattr(response, 'status_code', '?')}): {body}") from e
         logger.error("Upload failed (no response): %s", str(e)[:300])
