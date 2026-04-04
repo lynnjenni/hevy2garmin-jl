@@ -271,21 +271,6 @@ async def dashboard(request: Request):
     )
 
 
-def _trigger_bg_match_count(config: dict, hevy_client, hevy_total: int) -> None:
-    """Trigger background computation of precise matched count."""
-    def _compute():
-        try:
-            from hevy2garmin.garmin import get_client
-            from hevy2garmin.matcher import fetch_garmin_activities, count_matched_workouts
-            garmin_client = get_client(config.get("garmin_email"))
-            garmin_acts = fetch_garmin_activities(garmin_client, count=1000)
-            count_matched_workouts(hevy_total, hevy_client, garmin_acts)
-        except Exception:
-            pass
-
-    t = threading.Thread(target=_compute, daemon=True)
-    t.start()
-
 
 @app.get("/setup", response_class=HTMLResponse)
 async def setup_page(request: Request):
@@ -436,15 +421,12 @@ async def workouts_page(request: Request):
         workouts_raw = data.get("workouts", [])
         page_count = data.get("page_count", 1)
 
-        # Match against Garmin
+        # Check sync status from DB (fast) instead of Garmin API (slow)
         matches = {}
-        if config.get("garmin_email"):
-            try:
-                garmin_client = get_client(config.get("garmin_email"))
-                garmin_acts = fetch_garmin_activities(garmin_client, count=1000)
-                matches = match_workouts_to_garmin(workouts_raw, garmin_acts)
-            except Exception:
-                pass
+        for w in workouts_raw:
+            wid = w.get("id", "")
+            if db.is_synced(wid):
+                matches[wid] = {"garmin_id": db.get_garmin_id(wid)}
 
         # Get profile for calorie calculation
         profile = config.get("user_profile", {})

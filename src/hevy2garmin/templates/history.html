@@ -23,7 +23,7 @@
         <tbody>
             {% for h in history %}
             <tr>
-                <td style="color: var(--text-muted); font-size: 13px; font-variant-numeric: tabular-nums;">{{ h.synced_at }}</td>
+                <td style="color: var(--text-muted); font-size: 13px; font-variant-numeric: tabular-nums;">{{ h.synced_at.strftime('%Y-%m-%d %H:%M') if h.synced_at.strftime is defined else h.synced_at }}</td>
                 <td style="font-weight: 600;">{{ h.title }}</td>
                 <td style="text-align: right; font-variant-numeric: tabular-nums; color: var(--text-secondary);">{{ h.calories or '—' }}</td>
                 <td style="text-align: right; font-variant-numeric: tabular-nums; color: var(--text-secondary);">{{ h.avg_hr or '—' }}</td>
