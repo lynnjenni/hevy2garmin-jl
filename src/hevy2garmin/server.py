@@ -472,8 +472,10 @@ async def garmin_callback(request: Request, ticket: str = ""):
         return RedirectResponse("/", status_code=303)
     except Exception as e:
         logger.warning("Garmin callback failed: %s", e)
-        # Strip HTML from Garmin error responses
-        err = re.sub(r"<[^>]+>", "", str(e)).strip()[:200]
+        # Clean Garmin error: strip HTML tags and CSS, keep first meaningful part
+        raw = re.sub(r"<[^>]+>", " ", str(e))
+        err = re.sub(r"\s*\{[^}]+\}\s*", " ", raw).strip()
+        err = re.sub(r"\s{2,}", " ", err)[:200]
         return _render("garmin_redirect.html", error=err or "Unknown error")
 
 
