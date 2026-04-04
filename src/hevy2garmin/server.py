@@ -208,42 +208,8 @@ async def dashboard(request: Request):
     config = load_config()
     synced_count = db.get_synced_count()
     recent = db.get_recent_synced(5)
-    hevy_total = 0
-    matched_count = 0
-    try:
-        from hevy2garmin.hevy import HevyClient
-        from hevy2garmin.matcher import fetch_garmin_activities, count_matched_workouts, _matched_count_cache
 
-        hevy = HevyClient(api_key=config.get("hevy_api_key"))
-        hevy_total = hevy.get_workout_count()
-
-        # Use cached count if available (instant), otherwise estimate
-        if _matched_count_cache is not None:
-            matched_count = _matched_count_cache
-        elif config.get("garmin_email"):
-            # Quick estimate: count Garmin strength activities (1 API call, not 29)
-            try:
-                from hevy2garmin.garmin import get_client
-                garmin_client = get_client(config.get("garmin_email"))
-                garmin_acts = fetch_garmin_activities(garmin_client, count=1000)
-                garmin_strength = sum(
-                    1 for a in garmin_acts
-                    if a.get("activityType", {}).get("typeKey", "") in ("strength_training", "indoor_cardio")
-                )
-                matched_count = min(garmin_strength, hevy_total)
-            except Exception:
-                pass
-            # Trigger precise count in background for next load
-            _trigger_bg_match_count(config, hevy, hevy_total)
-    except Exception:
-        pass
-    mapping_count = 0
-    try:
-        from hevy2garmin.mapper import HEVY_TO_GARMIN, _custom_mappings, _ensure_custom_loaded
-        _ensure_custom_loaded()
-        mapping_count = len(HEVY_TO_GARMIN) + len(_custom_mappings)
-    except Exception:
-        pass
+    # Check garmin_connected FIRST (DB/file check only, no HTTP to Garmin)
     garmin_connected = False
     try:
         if db.get_database_url():
@@ -257,6 +223,41 @@ async def dashboard(request: Request):
             from pathlib import Path
             token_dir = Path(config.get("garmin_token_dir", "~/.garminconnect")).expanduser()
             garmin_connected = (token_dir / "oauth2_token.json").exists()
+    except Exception:
+        pass
+
+    hevy_total = 0
+    matched_count = 0
+    try:
+        from hevy2garmin.hevy import HevyClient
+        hevy = HevyClient(api_key=config.get("hevy_api_key"))
+        hevy_total = hevy.get_workout_count()
+
+        # Only attempt Garmin API calls if tokens already exist (never trigger fresh SSO login)
+        if garmin_connected and config.get("garmin_email"):
+            from hevy2garmin.matcher import fetch_garmin_activities, count_matched_workouts, _matched_count_cache
+            if _matched_count_cache is not None:
+                matched_count = _matched_count_cache
+            else:
+                try:
+                    from hevy2garmin.garmin import get_client
+                    garmin_client = get_client(config.get("garmin_email"))
+                    garmin_acts = fetch_garmin_activities(garmin_client, count=1000)
+                    garmin_strength = sum(
+                        1 for a in garmin_acts
+                        if a.get("activityType", {}).get("typeKey", "") in ("strength_training", "indoor_cardio")
+                    )
+                    matched_count = min(garmin_strength, hevy_total)
+                except Exception:
+                    pass
+                _trigger_bg_match_count(config, hevy, hevy_total)
+    except Exception:
+        pass
+    mapping_count = 0
+    try:
+        from hevy2garmin.mapper import HEVY_TO_GARMIN, _custom_mappings, _ensure_custom_loaded
+        _ensure_custom_loaded()
+        mapping_count = len(HEVY_TO_GARMIN) + len(_custom_mappings)
     except Exception:
         pass
     return _render(
@@ -361,11 +362,26 @@ async def setup_save(
                     "Temporarily disable MFA in your Garmin account settings, "
                     "connect here, then re-enable it."
                 )
+            elif "429" in err or "rate limit" in err.lower():
+                garmin_error = (
+                    "Garmin is temporarily blocking login attempts from this server. "
+                    "This usually resolves within 1-2 hours. Click 'Skip for now' "
+                    "and try again later from the Settings page."
+                )
+            elif "SSO login failed" in err:
+                garmin_error = (
+                    "Garmin login failed. Double-check your email and password. "
+                    "If they're correct, Garmin may be temporarily blocking logins "
+                    "from this server. Try again in an hour."
+                )
             else:
-                garmin_error = err
+                # Strip any HTML tags from Garmin error responses
+                cleaned = re.sub(r"<[^>]+>", " ", err)
+                cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()[:200]
+                garmin_error = cleaned or "Unknown error. Check your email and password."
     if garmin_error:
         return _render("setup.html", config=load_config(), garmin_error=garmin_error,
-                        allow_skip=True, is_cloud=False)
+                        allow_skip=True, is_cloud=bool(db.get_database_url()))
 
     return RedirectResponse("/", status_code=303)
 
