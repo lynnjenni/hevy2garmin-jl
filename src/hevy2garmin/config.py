@@ -58,7 +58,7 @@ def load_config() -> dict[str, Any]:
         except (json.JSONDecodeError, OSError) as e:
             logger.warning("Could not load config: %s", e)
 
-    # Database credentials (cloud deployments store creds in platform_credentials)
+    # Load credentials + settings from DB in one connection (cloud deployments)
     from hevy2garmin.db import get_database_url
     database_url = get_database_url()
     if database_url:
@@ -68,36 +68,25 @@ def load_config() -> dict[str, Any]:
             if hasattr(_db, '_get_conn'):
                 with _db._get_conn() as conn:
                     with conn.cursor() as cur:
-                        cur.execute("SELECT credentials FROM platform_credentials WHERE platform = 'hevy' LIMIT 1")
-                        row = cur.fetchone()
-                        if row and row.get("credentials"):
+                        # Credentials
+                        cur.execute("SELECT platform, credentials FROM platform_credentials WHERE platform IN ('hevy', 'garmin')")
+                        for row in cur.fetchall():
                             creds = row["credentials"] if isinstance(row["credentials"], dict) else json.loads(row["credentials"])
-                            if creds.get("api_key"):
+                            if row["platform"] == "hevy" and creds.get("api_key"):
                                 config["hevy_api_key"] = creds["api_key"]
-                        cur.execute("SELECT credentials FROM platform_credentials WHERE platform = 'garmin' LIMIT 1")
-                        row = cur.fetchone()
-                        if row and row.get("credentials"):
-                            creds = row["credentials"] if isinstance(row["credentials"], dict) else json.loads(row["credentials"])
-                            if creds.get("email"):
-                                config["garmin_email"] = creds["email"]
-                            if creds.get("password"):
-                                config["garmin_password"] = creds["password"]
-        except Exception:
-            pass
-
-    # Load persisted settings from DB (cloud deployments)
-    if database_url:
-        try:
-            from hevy2garmin.db import get_db
-            _db = get_db()
-            if hasattr(_db, 'get_app_config'):
-                for key in ("user_profile", "timing", "hr_fusion"):
-                    saved = _db.get_app_config(key)
-                    if saved:
-                        if key in config and isinstance(config[key], dict):
-                            config[key].update(saved)
-                        else:
-                            config[key] = saved
+                            elif row["platform"] == "garmin":
+                                if creds.get("email"):
+                                    config["garmin_email"] = creds["email"]
+                                if creds.get("password"):
+                                    config["garmin_password"] = creds["password"]
+                        # App settings
+                        cur.execute("SELECT key, value FROM app_cache WHERE key IN ('user_profile', 'timing', 'hr_fusion')")
+                        for row in cur.fetchall():
+                            val = row["value"] if isinstance(row["value"], dict) else json.loads(row["value"])
+                            if row["key"] in config and isinstance(config[row["key"]], dict):
+                                config[row["key"]].update(val)
+                            else:
+                                config[row["key"]] = val
         except Exception:
             pass
 

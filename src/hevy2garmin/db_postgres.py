@@ -12,14 +12,27 @@ class PostgresDatabase(Database):
 
     def __init__(self, database_url: str) -> None:
         self.database_url = database_url
-        self._pool = None
+        self._conn_cache = None
         self._ensure_tables()
 
     def _get_conn(self):
         import psycopg2
         from psycopg2.extras import RealDictCursor
 
+        # Reuse connection if still alive (avoids Neon cold-start per query)
+        if self._conn_cache is not None:
+            try:
+                self._conn_cache.cursor().execute("SELECT 1")
+                return self._conn_cache
+            except Exception:
+                try:
+                    self._conn_cache.close()
+                except Exception:
+                    pass
+                self._conn_cache = None
+
         conn = psycopg2.connect(self.database_url, cursor_factory=RealDictCursor)
+        self._conn_cache = conn
         return conn
 
     def _ensure_tables(self) -> None:

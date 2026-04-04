@@ -20,9 +20,10 @@ _instance: Database | None = None
 
 # Vercel Neon integration sets env vars with a custom prefix (default: STORAGE).
 # Check all common names so users don't have to change the prefix.
+# Prefer pooled URLs (pgbouncer) for faster connections on serverless
 _POSTGRES_URL_VARS = [
+    "POSTGRES_URL",       # Neon pooled (pgbouncer) — fastest for serverless
     "DATABASE_URL",
-    "POSTGRES_URL",
     "STORAGE_URL",
     "NEON_DATABASE_URL",
 ]
