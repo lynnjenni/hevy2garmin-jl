@@ -1240,7 +1240,7 @@ async def api_sync_one(request: Request):
         )
         remaining = hevy.get_workout_count() - db.get_synced_count()
         logger.warning("Skipped failed workout %s, %d remaining", unsynced["title"], remaining)
-        return JSONResponse({"synced": 1, "skipped_error": True, "title": unsynced["title"], "remaining": max(0, remaining), "done": remaining <= 0})
+        return JSONResponse({"synced": 1, "skipped_error": True, "title": unsynced["title"], "remaining": max(0, remaining), "done": remaining <= 0, "debug_error": str(e)[:1000]})
 
 
 @app.post("/api/reset-sync")
