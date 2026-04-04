@@ -224,7 +224,7 @@ async def check_setup(request: Request, call_next):
     global _is_configured_cache
     path = request.url.path
     if path in ("/setup", "/favicon.ico", "/api/sync-one", "/api/cron/sync",
-                "/api/setup-actions", "/api/garmin-ticket", "/api/reset-sync") \
+                "/api/setup-actions", "/api/garmin-ticket") \
        or path.startswith("/static"):
         return await call_next(request)
     # Cache is_configured result (set to True after first successful setup)
@@ -1248,28 +1248,9 @@ async def api_sync_one(request: Request):
         )
         remaining = hevy.get_workout_count() - db.get_synced_count()
         logger.warning("Skipped failed workout %s, %d remaining", unsynced["title"], remaining)
-        return JSONResponse({"synced": 1, "skipped_error": True, "title": unsynced["title"], "remaining": max(0, remaining), "done": remaining <= 0, "debug_error": str(e)[:1000]})
+        return JSONResponse({"synced": 1, "skipped_error": True, "title": unsynced["title"], "remaining": max(0, remaining), "done": remaining <= 0})
 
 
-@app.post("/api/reset-sync")
-async def reset_sync():
-    """Clear all sync records — for debugging/testing only."""
-    from fastapi.responses import JSONResponse
-    try:
-        _db = db.get_db()
-        if hasattr(_db, '_get_conn'):
-            with _db._get_conn() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("DELETE FROM synced_workouts")
-                conn.commit()
-        else:
-            import sqlite3
-            conn = _db._conn if hasattr(_db, '_conn') else sqlite3.connect(str(_db.db_path))
-            conn.execute("DELETE FROM synced_workouts")
-            conn.commit()
-        return JSONResponse({"ok": True, "message": "Sync records cleared"})
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @app.get("/api/cron/sync")
